@@ -27,7 +27,6 @@ class Predictor(modelWeights: org.apache.spark.mllib.linalg.Vector, numModelWeig
         data =>
           Vectors.dense(data.routeId, data.latitude, data.longitude, data.speed, data.foggy, data.rainy, data.windy)
       )
-      println("Prediction: " + model.predictOn(vectors))
       model.predictOn(vectors)
 
       //model.trainOn(driverStats)

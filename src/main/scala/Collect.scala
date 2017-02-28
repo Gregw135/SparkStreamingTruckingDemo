@@ -61,16 +61,20 @@ object Collect {
     var logisticModel: LogisticRegressionModel = null
     var weights:org.apache.spark.mllib.linalg.Vector = null
     if(options.modelLocation != null && options.modelLocation != "") {
-      logisticModel = LogisticRegressionModel.load(sc, options.modelLocation)
-       weights = logisticModel.weights
+      try {
+        logisticModel = LogisticRegressionModel.load(sc, options.modelLocation)
+        weights = logisticModel.weights
+      }catch{
+        case e:Exception => {
+          e.printStackTrace()
+        }
+      }
     }
-
     Collector.doIt(options, sc, ssc, weights)
-
   }
 }
 
-/** Pull trucking events from Kafka */
+/** Pull trucking and traffic events from Kafka */
 object Collector extends App{
 
   def doIt(options: CollectOptions, sc: SparkContext, ssc: StreamingContext, weights: org.apache.spark.mllib.linalg.Vector) {
@@ -101,7 +105,6 @@ object Collector extends App{
       String, String, StringDecoder, StringDecoder ](
       ssc, kafkaParams, options.truckingTopic)
 
-    //Dstream[RouteId:Int, EnrichedTruckData]
     val cleanedTruckEvents = truckEvents.map({
       record => {
         val Array(eventTime, truckId, driverId, driverName, routeId, routeName, latitude, longitude, speed, eventType, foggy, rainy, windy, unknown) = record._2.split("\\|")
@@ -147,12 +150,14 @@ object Collector extends App{
       }
     })
 
-    //make predictions on each event
-    val predictor = new Predictor(weights, options.numModelWeights)
-    val predictionStream = predictor.predict(truckAndTrafficData.map(row => row._2  ))
-    predictionStream.foreachRDD(
-      rdd =>
-        rdd.foreach(row => println(row))
+    //send joined data to HDFS. Data can be analyzed with the provided Zeppelin notebook.
+    truckAndTrafficData.map(
+      //extract data from tuple of (driverId, data)
+      rdd => rdd._2.toCSV
+    ).foreachRDD(
+      rdd => {
+        rdd.saveAsTextFile("hdfs:///tmp/trucking/data/truckEvents/")
+      }
     )
 
     val windowed = truckAndTrafficData.map(
@@ -195,6 +200,22 @@ object Collector extends App{
         })
       }
     })
+
+    //send windowed data to HDFS
+    windowed.map(
+      //extract data from tuple of (driverId, data)
+      rdd => rdd._2.toCSV
+    ).foreachRDD(
+      rdd => rdd.saveAsTextFile("hdfs:///tmp/trucking/data/windowedEvents/")
+    )
+
+    //make predictions on each event
+    val predictor = new Predictor(weights, options.numModelWeights)
+    val predictionStream = predictor.predict(truckAndTrafficData.map(row => row._2  ))
+    predictionStream.foreachRDD(
+      rdd =>
+        rdd.foreach(row => println(row))
+    )
 
 
     //Make predictions
