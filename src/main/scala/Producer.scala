@@ -1,13 +1,10 @@
 package main.scala
 
+import java.io.InputStream
 import java.util
 import java.util.Properties
 
 import com.typesafe.config.ConfigFactory
-import kafka.serializer.StringDecoder
-import org.apache.spark.streaming.kafka._
-import org.apache.spark.streaming.{Seconds, StreamingContext}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord}
 
 
@@ -24,8 +21,13 @@ case class ProduceOptions(
 
 object Producer {
 
+  val stream : InputStream = getClass.getResourceAsStream("/sampleData.txt")
+  val lines = scala.io.Source.fromInputStream( stream ).getLines
+  val exampleData = new util.ArrayList[String]
+
   private implicit val config = ConfigFactory.load()
   def main(args: Array[String]) {
+
 
     val options = new ProduceOptions(
       config.getInt("spark.messageFrequency"),
@@ -37,7 +39,6 @@ object Producer {
     print(options.kafkaBrokerList)
 
     val props = new Properties()
-    //props.put("metadata.broker.list",  options.kafkaBrokerList)
     props.put("bootstrap.servers", options.kafkaBrokerList)
     props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer")
     props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer")
@@ -46,14 +47,37 @@ object Producer {
 
 
     // Send some messages
+    var counter = 0
     while(true) {
 
-        val message = new ProducerRecord[String, String](options.kafkaTrucking, null,
-          "1486669632837|30|5|Edgar Orendain|5|Joplin to Kansas City|" + (60 + scala.util.Random.nextInt(60)) +"|" +
-            scala.util.Random.nextInt(100) + "|" + 60 +  scala.util.Random.nextInt(500) + "|Violation|1|" + scala.util.Random.nextInt(2) +"|3|" + scala.util.Random.nextInt(100))
-        producer.send(message)
-        val message2 = new ProducerRecord[String, String](options.kafkaTraffic, null, "1|5|" + scala.util.Random.nextInt(10))
-        producer.send(message2)
+      var line:String = null
+      if(lines.hasNext){
+        line = lines.next()
+        exampleData.add(line)
+      }else{
+        exampleData.get(counter)
+        counter +=1
+        if(counter == exampleData.size())
+          counter = 0
+      }
+      line = "" + line.trim()
+
+      //println(line)
+      //val message = new ProducerRecord[String, String](options.kafkaTrucking, null, line)
+
+      val line2 = ("1486669632837|30|5|Edgar Orendain|5|Joplin to Kansas City|" + (60 + scala.util.Random.nextInt(60)) +"|"+
+        scala.util.Random.nextInt(100) + "|" + (60 +  scala.util.Random.nextInt(20)) + "|Violation|1|" + scala.util.Random.nextInt(2) +"|3|" + scala.util.Random.nextInt(100))
+
+      println("not working: " + line)
+      println("working    : " + line2)
+      println("\n")
+      val message = new ProducerRecord[String, String](options.kafkaTrucking, null, line2)
+
+      producer.send(message)
+
+
+      val message2 = new ProducerRecord[String, String](options.kafkaTraffic, null, "1|5|" + scala.util.Random.nextInt(10))
+      producer.send(message2)
 
       Thread.sleep(options.frequency.longValue())
     }

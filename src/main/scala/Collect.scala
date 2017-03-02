@@ -16,6 +16,7 @@ import org.apache.spark.storage._
 import org.apache.spark.mllib.classification.LogisticRegressionModel
 import org.apache.spark.mllib.classification.LogisticRegressionWithSGD
 import org.apache.spark.mllib.regression.StreamingLinearRegressionWithSGD
+import org.apache.spark.streaming.dstream.DStream
 
 case class CollectOptions(
   windowFrequency: Integer,
@@ -51,8 +52,11 @@ object Collect {
     )
 
     val conf = new SparkConf() //configuration properties will be passed in at runtime
+    conf.set("spark.streaming.concurrentJobs", "4")
     conf.setAppName(options.appName)
+    conf.setMaster("local")
     val sc = new SparkContext(conf)
+
     sc.setCheckpointDir("/tmp/SparkStreaming")
     sc.setLogLevel("ERROR")
     val ssc = new StreamingContext(sc, Seconds(options.streamingWindow.toLong))
@@ -105,14 +109,12 @@ object Collector extends App{
       String, String, StringDecoder, StringDecoder ](
       ssc, kafkaParams, options.truckingTopic)
 
-    val cleanedTruckEvents = truckEvents.map({
+    val cleanedTruckEvents:DStream[(Int, EnrichedTruckData)] = truckEvents.map({
       record => {
-        val Array(eventTime, truckId, driverId, driverName, routeId, routeName, latitude, longitude, speed, eventType, foggy, rainy, windy, unknown) = record._2.split("\\|")
-        val tuple = (routeId.toInt, EnrichedTruckData(eventTime.toLong, truckId.toInt, driverId.toInt, driverName, routeId.toInt, routeName,
-          latitude.toDouble, longitude.toDouble, speed.toInt, eventType, foggy.toInt, rainy.toInt, windy.toInt))
-        //println("Trucking event for route: " + tuple._1 + " " + tuple._2)
+          val Array(eventTime, truckId, driverId, driverName, routeId, routeName, latitude, longitude, speed, eventType, foggy, rainy, windy, unknown) = record._2.split("\\|")
+          val tuple = (routeId.toInt, EnrichedTruckData(eventTime.toLong, truckId.toInt, driverId.toInt, driverName, routeId.toInt, routeName,
+            latitude.toDouble, longitude.toDouble, speed.toInt, eventType, foggy.toInt, rainy.toInt, windy.toInt))
         tuple
-        //println(trafficState.count())
       }
     })
 
@@ -129,7 +131,8 @@ object Collector extends App{
         (enriched.driverId, enriched)
       }
     )
-//
+    joined.print()
+
     //Push joined data back to Kafka
     truckAndTrafficData.foreachRDD({
       rdd => {
@@ -212,28 +215,15 @@ object Collector extends App{
     //make predictions on each event
     val predictor = new Predictor(weights, options.numModelWeights)
     val predictionStream = predictor.predict(truckAndTrafficData.map(row => row._2  ))
+    //print predictions
     predictionStream.foreachRDD(
       rdd =>
         rdd.foreach(row => println(row))
     )
+    predictionStream.print()
 
-
-    //Make predictions
-//    windowed.foreachRDD({
-//    rdd => {
-//      rdd.foreachPartition({
-//        partition => {
-//          //Predictor can't be serialized, so we construct it locally in each executor using foreachPartition
-//          val predictor = new Predictor(weights)
-//          partition.foreach({
-//            data =>
-//              val toPredict = data._2
-//              predictor.predict(toPredict)
-//          })
-//        }
-//      })
-//    }
-//  })
+    //Train the model
+    predictor.train(truckAndTrafficData.map(row => row._2 ))
 
 
     //truckAndTrafficData.print()
