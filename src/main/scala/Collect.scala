@@ -70,6 +70,7 @@ object Collect {
         weights = logisticModel.weights
       }catch{
         case e:Exception => {
+          println("Exception: couldn't load Logistic Regression Model. Have you built one yet with Zeppelin?")
           e.printStackTrace()
         }
       }
